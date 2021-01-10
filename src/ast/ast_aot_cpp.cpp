@@ -535,6 +535,7 @@ namespace das {
         }
         void describeCppStructInfo ( TextWriter & ss, StructInfo * info ) const {
             ss << "\"" << info->name << "\", ";
+            ss << "\"" << info->module_name << "\", ";
             if ( info->fields ) {
                 ss << structInfoName(info) << "_fields, ";
             } else {

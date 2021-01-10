@@ -112,6 +112,7 @@ namespace das {
         if ( it!=smn2s.end() ) return it->second;
         StructInfo * sti = debugInfo->makeNode<StructInfo>();
         sti->name = debugInfo->allocateName(st.name);
+        sti->module_name = debugInfo->allocateName(st.module->name);
         sti->count = (uint32_t) st.fields.size();
         sti->size = st.getSizeOf();
         sti->fields = (VarInfo **) debugInfo->allocate( sizeof(VarInfo *) * sti->count );
@@ -146,7 +147,36 @@ namespace das {
         }
         info->type = type->baseType;
         info->dimSize = (uint32_t) type->dim.size();
-        info->annotation_or_name = type->annotation;
+        if(Type::tStructure == type->baseType && type->structType->annotations.size() > 0)
+        {
+            info->annotation_or_name = type->annotation;
+
+            for(auto annotationDeclarationPtr : type->structType->annotations)
+            {
+                string moduleName = annotationDeclarationPtr->annotation->module->name;
+                string annName = annotationDeclarationPtr->annotation->name;
+
+                Module::foreach([info, moduleName, annName](Module* moduleptr) -> bool {
+                    if (moduleName == moduleptr->name)
+                    {
+                        if (auto annT = moduleptr->findAnnotation(annName)) {
+                            info->annotation_or_name = (TypeAnnotation*)annT.get();
+
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+
+                if(nullptr != info->annotation_or_name) break;
+            }
+            
+        }
+        else
+        {
+            info->annotation_or_name = type->annotation;
+        }
+        
         if ( info->dimSize ) {
             info->dim = (uint32_t *) debugInfo->allocate(sizeof(uint32_t) * info->dimSize );
             for ( uint32_t i=0; i != info->dimSize; ++i ) {

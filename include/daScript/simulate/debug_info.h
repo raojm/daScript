@@ -242,6 +242,7 @@ namespace das
 
     struct StructInfo {
         char *      name;
+        char *      module_name;
         VarInfo **  fields;
         uint32_t    count;
         uint32_t    size;
