@@ -8,9 +8,14 @@ require jobque public
 require daslib/rtti
 require daslib/ast
 require daslib/ast_boost
+require daslib/template
 
 [tag_function(new_job_tag)]
 def new_job ( var l : lambda )
+    invoke(l)   // note, this is never called if job-que is there
+
+[tag_function(new_job_tag)]
+def new_thread ( var l : lambda )
     invoke(l)   // note, this is never called if job-que is there
 
 [tag_function_macro(tag="new_job_tag")]
@@ -50,8 +55,35 @@ class NewJobMacro : AstFunctionAnnotation
         ftype.argTypes |> emplace <| sttype
         ftype.argTypes[1].flags |= TypeDeclFlags constant
         // make a new_job_invoke call
-        var ncall <- new [[ExprCall() at=call.at, name:="new_job_invoke"]]
+        var ncall <- new [[ExprCall() at=call.at, name:="{call.name}_invoke"]]
         ncall.arguments |> emplace_new <| clone_expression(call.arguments[0])
         ncall.arguments |> emplace_new <| new [[ExprAddr() at=call.at, target:="clone", funcType <- ftype]]
         ncall.arguments |> emplace_new <| new [[ExprConstInt() at=call.at, value=int(mks._type.sizeOf)]]
         return <- ncall
+
+def for_each ( channel:Channel?; blk:block<(res:auto(TT)#):void> )
+    while true
+        let void_data = _builtin_channel_pop(channel)
+        if void_data==null
+            break
+        unsafe
+            let typed_data = reinterpret<TT?#> void_data
+            invoke ( blk, *typed_data )
+
+def push_clone ( channel:Channel?; data : auto(TT) )
+    var heap_data = new TT
+    *heap_data := data
+    _builtin_channel_push(channel, heap_data)
+
+[template (tinfo)]
+def each ( channel:Channel?; tinfo : auto(TT) )
+    unsafe
+        return <- generator<TT&#> () <| $ ()
+            while true
+                let void_data = _builtin_channel_pop(channel)
+                if void_data==null
+                    return false
+                unsafe
+                    yield * reinterpret<TT?#> void_data
+            return false
+
