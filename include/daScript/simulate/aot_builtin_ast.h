@@ -427,9 +427,9 @@ namespace das {
     DebugAgentPtr makeDebugAgent ( const void * pClass, const StructInfo * info, Context * context );
     Module * thisModule ( Context * context, LineInfoArg * lineinfo );
     smart_ptr_raw<Program> thisProgram ( Context * context );
-    void astVisit ( smart_ptr_raw<Program> program, smart_ptr_raw<VisitorAdapter> adapter );
-    void astVisitFunction ( smart_ptr_raw<Function> func, smart_ptr_raw<VisitorAdapter> adapter );
-    void astVisitExpression ( smart_ptr_raw<Expression> expr, smart_ptr_raw<VisitorAdapter> adapter );
+    void astVisit ( smart_ptr_raw<Program> program, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info );
+    void astVisitFunction ( smart_ptr_raw<Function> func, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info);
+    void astVisitExpression ( smart_ptr_raw<Expression> expr, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info);
     PassMacroPtr makePassMacro ( const char * name, const void * pClass, const StructInfo * info, Context * context );
     smart_ptr<VisitorAdapter> makeVisitor ( const void * pClass, const StructInfo * info, Context * context );
     void addModuleInferDirtyMacro ( Module * module, PassMacroPtr & newM, Context * context );
@@ -454,6 +454,7 @@ namespace das {
     __forceinline FunctionPtr clone_function ( FunctionPtr value ) { return value->clone(); }
     __forceinline TypeDeclPtr clone_type ( TypeDeclPtr value ) { return make_smart<TypeDecl>(*value); }
     __forceinline StructurePtr clone_structure ( const Structure * value ) { return value->clone(); }
+    __forceinline VariablePtr clone_variable ( VariablePtr value ) { return value->clone(); }
     void forceAtRaw ( const smart_ptr_raw<Expression> & expr, const LineInfo & at );
     void getAstContext ( smart_ptr_raw<Program> prog, smart_ptr_raw<Expression> expr, const TBlock<void,bool,AstContext> & block, Context * context );
 

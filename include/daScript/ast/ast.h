@@ -105,6 +105,7 @@ namespace das
     public:
         struct EnumEntry {
             string          name;
+            string          cppName;
             LineInfo        at;
             ExpressionPtr   value;
         };
@@ -113,7 +114,9 @@ namespace das
         Enumeration( const string & na ) : name(na) {}
         bool add ( const string & f, const LineInfo & at );
         bool add ( const string & f, const ExpressionPtr & expr, const LineInfo & at );
+        bool addEx ( const string & f, const string & fcpp, const ExpressionPtr & expr, const LineInfo & at );
         bool addI ( const string & f, int64_t value, const LineInfo & at );
+        bool addIEx ( const string & f, const string & fcpp, int64_t value, const LineInfo & at );
         string describe() const { return name; }
         string getMangledName() const;
         int64_t find ( const string & na, int64_t def ) const;
@@ -238,6 +241,7 @@ namespace das
                 bool    generated : 1;
                 bool    capture_as_ref : 1;
                 bool    can_shadow : 1;             // can shadow block or function arguments, as block argument
+                bool    private_variable : 1;
             };
             uint32_t flags = 0;
         };
@@ -286,10 +290,13 @@ namespace das
         virtual bool finalize ( ExprBlock * block, ModuleGroup & libGroup,
                                const AnnotationArgumentList & args,
                                const AnnotationArgumentList & progArgs, string & err ) = 0;
+        virtual void complete ( Context * ) { }
         virtual bool simulate ( Context *, SimFunction * ) { return true; }
         virtual bool verifyCall ( ExprCallFunc * /*call*/, const AnnotationArgumentList & /*args*/, string & /*err*/ ) { return true; }
         virtual ExpressionPtr transformCall ( ExprCallFunc * /*call*/, string & /*err*/ ) { return nullptr; }
         virtual string aotName ( ExprCallFunc * call );
+        virtual string aotArgumentPrefix ( ExprCallFunc * /*call*/, int /*argIndex*/ ) { return ""; }
+        virtual string aotArgumentSuffix ( ExprCallFunc * /*call*/, int /*argIndex*/ ) { return ""; }
         virtual void aotPrefix ( TextWriter &, ExprCallFunc * ) { }
         virtual bool isGeneric() const { return false; }
     };
@@ -561,7 +568,7 @@ namespace das
     ,   worstDefault =      modifyArgumentAndExternal// use this as 'default' bind if you don't know what are side effects of your function, or if you don't undersand what are SideEffects
     ,   accessGlobal =      (1<<4)
     ,   invoke =            (1<<5)
-    ,   inferedSideEffects = uint32_t(SideEffects::modifyArgument) | uint32_t(SideEffects::accessGlobal) | uint32_t(SideEffects::invoke)
+    ,   inferredSideEffects = uint32_t(SideEffects::modifyArgument) | uint32_t(SideEffects::accessGlobal) | uint32_t(SideEffects::invoke)
     };
 
     struct InferHistory {
@@ -592,7 +599,21 @@ namespace das
         LineInfo getConceptLocation(const LineInfo & at) const;
         virtual string getAotBasicName() const { return name; }
         string getAotName(ExprCallFunc * call) const;
+        string getAotArgumentPrefix(ExprCallFunc * call, int index) const;
+        string getAotArgumentSuffix(ExprCallFunc * call, int index) const;
         FunctionPtr setAotTemplate();
+        FunctionPtr arg_init ( int argIndex, const ExpressionPtr & initValue ) {
+            arguments[argIndex]->init = initValue;
+            return this;
+        }
+        FunctionPtr arg_type ( int argIndex, const TypeDeclPtr & td ) {
+            arguments[argIndex]->type = td;
+            return this;
+        }
+        FunctionPtr res_type ( const TypeDeclPtr & td ) {
+            result = td;
+            return this;
+        }
     public:
         AnnotationList      annotations;
         string              name;
@@ -677,6 +698,7 @@ namespace das
             return this;
         }
         FunctionPtr args ( std::initializer_list<const char *> argList ) {
+            if ( argList.size()==0 ) return this;
             DAS_ASSERT(argList.size()==arguments.size());
             int argIndex = 0;
             for ( const char * arg : argList ) {
@@ -770,6 +792,7 @@ namespace das
         virtual void addPrerequisits ( ModuleLibrary & ) const {}
         virtual ModuleAotType aotRequire ( TextWriter & ) const { return ModuleAotType::no_aot; }
         virtual Type getOptionType ( const string & ) const { return Type::none; }
+        virtual bool initDependencies() { return true; }
         bool addAlias ( const TypeDeclPtr & at, bool canFail = false );
         bool addVariable ( const VariablePtr & var, bool canFail = false );
         bool addStructure ( const StructurePtr & st, bool canFail = false );
@@ -784,6 +807,7 @@ namespace das
         TypeDeclPtr findAlias ( const string & name ) const;
         VariablePtr findVariable ( const string & name ) const;
         FunctionPtr findFunction ( const string & mangledName ) const;
+        FunctionPtr findUniqueFunction ( const string & name ) const;
         StructurePtr findStructure ( const string & name ) const;
         AnnotationPtr findAnnotation ( const string & name ) const;
         EnumerationPtr findEnum ( const string & name ) const;
@@ -793,6 +817,7 @@ namespace das
         bool compileBuiltinModule ( const string & name, unsigned char * str, unsigned int str_len );//will replace last symbol to 0
         static Module * require ( const string & name );
         static Module * requireEx ( const string & name, bool allowPromoted );
+        static void Initialize();
         static void Shutdown();
         static TypeAnnotation * resolveAnnotation ( const TypeInfo * info );
         static Type findOption ( const string & name );
@@ -842,7 +867,7 @@ namespace das
         mutable das_map<string, ExprCallFactory>    callThis;
         das_map<string, TypeInfoMacroPtr>           typeInfoMacros;
         das_map<uint32_t, uint64_t>                 annotationData;
-        das_map<Module *,bool>                      requireModule;      // visibility modules
+        das_safe_map<Module *,bool>                 requireModule;      // visibility modules
         vector<PassMacroPtr>                        macros;             // infer macros (clean infer, assume no errors)
         vector<PassMacroPtr>                        inferMacros;        // infer macros (dirty infer, assume half-way-there tree)
         vector<PassMacroPtr>                        optimizationMacros; // optimization macros
@@ -890,6 +915,7 @@ namespace das
         void addBuiltInModule ();
         void addModule ( Module * module );
         void foreach ( const callable<bool (Module * module)> & func, const string & name ) const;
+        void foreach_in_order ( const callable<bool (Module * module)> & func, Module * thisM ) const;
         vector<TypeDeclPtr> findAlias ( const string & name, Module * inWhichModule ) const;
         vector<AnnotationPtr> findAnnotation ( const string & name, Module * inWhichModule ) const;
         vector<TypeInfoMacroPtr> findTypeInfoMacro ( const string & name, Module * inWhichModule ) const;
@@ -1107,6 +1133,7 @@ namespace das
                 bool    isCompilingMacros : 1;
                 bool    needMacroModule : 1;
                 bool    promoteToBuiltin : 1;
+                bool    isDependency : 1;
             };
             uint32_t    flags = 0;
         };
@@ -1128,10 +1155,12 @@ namespace das
     Func adapt ( const char * funcName, char * pClass, const StructInfo * info );
 
     // this one works for single module only
-    ProgramPtr parseDaScript ( const string & fileName, const FileAccessPtr & access, TextWriter & logs, ModuleGroup & libGroup, bool exportAll = false, CodeOfPolicies policies = CodeOfPolicies() );
+    ProgramPtr parseDaScript ( const string & fileName, const FileAccessPtr & access,
+        TextWriter & logs, ModuleGroup & libGroup, bool exportAll = false, bool isDep = false, CodeOfPolicies policies = CodeOfPolicies() );
 
     // this one collectes dependencies and compiles with modules
-    ProgramPtr compileDaScript ( const string & fileName, const FileAccessPtr & access, TextWriter & logs, ModuleGroup & libGroup, bool exportAll = false, CodeOfPolicies policies = CodeOfPolicies() );
+    ProgramPtr compileDaScript ( const string & fileName, const FileAccessPtr & access,
+        TextWriter & logs, ModuleGroup & libGroup, bool exportAll = false, CodeOfPolicies policies = CodeOfPolicies() );
 
     // collect script prerequisits
     bool getPrerequisits ( const string & fileName,

@@ -27,6 +27,7 @@ namespace das {
 
     #define DAS_SETBOOLOR(a,b)  (([&]()->bool{ bool & A=((a)); A=A||((b)); return A; })())
     #define DAS_SETBOOLAND(a,b) (([&]()->bool{ bool & A=((a)); A=A&&((b)); return A; })())
+    #define DAS_SETBOOLXOR(a,b) (([&]()->bool{ bool & A=((a)); A=A^((b)); return A; })())
 
     #define DAS_MAKE_ANNOTATION(name)   ((TypeAnnotation*)(intptr_t(name)|1))
 
@@ -124,6 +125,10 @@ namespace das {
 
     __forceinline int das_memcmp ( void * left, void * right, int size ) {
         return memcmp(left, right, size);
+    }
+
+    __forceinline void das_memcpy ( void * left, void * right, int size ) {
+        memcpy(left, right, size);
     }
 
     template <typename TT>
@@ -300,8 +305,8 @@ namespace das {
             return nullptr;
         }
         template <typename QQ>
-        static __forceinline const TT * cast ( const QQ * expr ) {
-            return reinterpret_cast<const TT *>(expr);
+        static __forceinline TT * cast ( const QQ * expr ) {
+            return const_cast<TT *>(reinterpret_cast<const TT *>(expr));
         }
         template <typename QQ>
         static __forceinline TT * cast ( const smart_ptr_raw<QQ> & expr ) {
@@ -313,7 +318,7 @@ namespace das {
         }
         template <typename QQ>
         static __forceinline TT * cast ( const QQ & expr ) {
-            return reinterpret_cast<TT *>(&expr);
+            return const_cast<TT *>(reinterpret_cast<const TT *>(&expr));
         }
     };
 
@@ -2352,6 +2357,117 @@ namespace das {
         static __forceinline void use ( A1 a1, A2 a2, A3 a3, A4 a4, A5 a5, A6 a6, TT && block ) {
             CType value ( a1, a2, a3, a4, a5, a6 );
             block ( value );
+        }
+    };
+
+#define DAS_CALL_MEMBER(type_and_fun)    \
+    das::das_call_member< DAS_BIND_MEMBER_FUN(type_and_fun) >
+
+
+#define DAS_CALL_MEMBER_CPP(type_and_fun) \
+    "das_call_member< DAS_BIND_MEMBER_FUN(" #type_and_fun ")>::invoke"
+
+    template <typename FuncT, FuncT fun>
+    struct das_call_member;
+
+    template <typename R, typename CC, typename ...Args, R (CC::*func)(Args...) >
+    struct das_call_member < R (CC::*)(Args...),  func> {
+        static R invoke ( CC & THIS, Args... args ) {
+            return ((THIS).*(func)) ( args... );
+        }
+    };
+
+    template <typename R, typename CC, typename ...Args, R (CC::*func)(Args...) const >
+    struct das_call_member < R (CC::*)(Args...) const,  func> {
+        static R invoke ( const CC & THIS, Args... args ) {
+            return ((THIS).*(func)) ( args... );
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_AND {
+        static ET invoke ( ET a, ET b ) {
+            return ET(int(a) & int(b));
+        }
+        template <typename EA, typename EB>
+        static ET invoke ( EA a, EB b ) {
+            return ET(int(a) & int(b));
+        }
+    };
+    template <typename ET>
+    struct das_operator_enum_OR {
+        static ET invoke ( ET a, ET b ) {
+            return ET(int(a) | int(b));
+        }
+        template <typename EA, typename EB>
+        static ET invoke ( EA a, EB b ) {
+            return ET(int(a) | int(b));
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_XOR {
+        static ET invoke ( ET a, ET b ) {
+            return ET(int(a) ^ int(b));
+        }
+        template <typename EA, typename EB>
+        static ET invoke ( EA a, EB b ) {
+            return ET(int(a) ^ int(b));
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_OR_EQU {
+        static void invoke ( ET & a, ET b ) {
+            a = ET(int(a) | int(b));
+        }
+        template <typename EA, typename EB>
+        static void invoke ( EA & a, EB b ) {
+            a = EA(int(a) | int(b));
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_XOR_EQU {
+        static void invoke ( ET & a, ET b ) {
+            a = ET(int(a) ^ int(b));
+        }
+        template <typename EA, typename EB>
+        static void invoke ( EA & a, EB b ) {
+            a = EA(int(a) ^ int(b));
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_AND_EQU {
+        static void invoke ( ET & a, ET b ) {
+            a = ET(int(a) & int(b));
+        }
+        template <typename EA, typename EB>
+        static void invoke ( EA & a, EB b ) {
+            a = EA(int(a) & int(b));
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_AND_AND {
+        static bool invoke ( ET a, ET b ) {
+            return (int(a) & int(b))!=0;
+        }
+        template <typename EA, typename EB>
+        static bool invoke ( EA a, EB b ) {
+            return (int(a) & int(b))!=0;
+        }
+    };
+
+    template <typename ET>
+    struct das_operator_enum_NOT {
+        static ET invoke ( ET a ) {
+            return ET(~int(a));
+        }
+        template <typename EA>
+        static ET invoke ( EA a ) {
+            return ET(~int(a));
         }
     };
 }

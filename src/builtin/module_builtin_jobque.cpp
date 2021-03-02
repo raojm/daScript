@@ -18,7 +18,7 @@ namespace das {
 
     void Channel::push ( void * data, Context * context ) {
         lock_guard<mutex> guard(lock);
-        pipe.emplace(data, context);
+        pipe.emplace(data, context!=owner ? context : nullptr);
         cond.notify_all();  // notify_one??
     }
 
@@ -79,12 +79,12 @@ namespace das {
     }
 
     void withChannel ( const TBlock<void,Channel *> & blk, Context * context ) {
-        Channel ch;
+        Channel ch(context);
         das_invoke<void>::invoke<Channel *>(context, blk, &ch);
     }
 
     void withChannelEx ( int32_t count, const TBlock<void,Channel *> & blk, Context * context ) {
-        Channel ch(count);
+        Channel ch(context,count);
         das_invoke<void>::invoke<Channel *>(context, blk, &ch);
     }
 
@@ -214,9 +214,6 @@ namespace das {
                 SideEffects::modifyExternal, "waitForJob");
             addExtern<DAS_BIND_FUN(notifyJob)>(*this, lib,  "notify",
                 SideEffects::modifyExternal, "notifyJob");
-            // context
-            addExtern<DAS_BIND_FUN(thisContext)>(*this, lib,  "this_context",
-                SideEffects::accessExternal, "thisContext");
             // fork \ invoke \ etc
             addExtern<DAS_BIND_FUN(new_job_invoke)>(*this, lib,  "new_job_invoke",
                 SideEffects::modifyExternal, "new_job_invoke");

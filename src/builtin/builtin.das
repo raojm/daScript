@@ -83,6 +83,9 @@ def erase(var Arr:array<auto(numT)>;at:int)
 def length(a:auto[]):int
     return typeinfo(dim a)
 
+def empty(a:array<auto>) : bool
+    return length(a)==0
+
 // table
 
 def find(Tab:table<auto(keyT);auto(valT)>;at:keyT;blk:block<(p:valT?):void>)
@@ -424,7 +427,7 @@ def lock_data ( var a : array<auto(TT)> = const; blk : block<(var p:TT?# implici
         var nullT : TT?
         invoke(blk, nullT, 0)
 
-def lock_data ( a : array<auto(TT)> = const; blk : block<(p:TT?# implicit;s:int)> )
+def lock_data ( a : array<auto(TT)> = const; blk : block<(p:TT const?# implicit;s:int)> )
     let len = length(a)
     if len != 0
         __builtin_array_lock(a)

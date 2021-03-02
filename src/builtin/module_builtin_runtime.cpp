@@ -814,6 +814,11 @@ namespace das
         context->invoke(block, args, nullptr);
     }
 
+    bool g_isInAot = false;
+    bool is_in_aot ( ) {
+        return g_isInAot;
+    }
+
     void Module_BuiltIn::addRuntime(ModuleLibrary & lib) {
         // printer flags
         addAlias(makePrintFlags());
@@ -967,6 +972,7 @@ namespace das
         addExtern<DAS_BIND_FUN(gc0_restore_smart_ptr)>(*this, lib, "gc0_restore_smart_ptr", SideEffects::accessExternal, "gc0_restore_smart_ptr");
         addExtern<DAS_BIND_FUN(gc0_reset)>(*this, lib, "gc0_reset", SideEffects::modifyExternal, "gc0_reset");
         // pointer ari
+        addExtern<DAS_BIND_FUN(das_memcpy)>(*this, lib, "memcpy", SideEffects::modifyArgumentAndExternal, "das_memcpy")->unsafeOperation = true;
         addExtern<DAS_BIND_FUN(das_memcmp)>(*this, lib, "memcmp", SideEffects::none, "das_memcmp")->unsafeOperation = true;
         auto idpi = addExtern<DAS_BIND_FUN(i_das_ptr_inc)>(*this, lib, "i_das_ptr_inc", SideEffects::modifyArgument, "das_ptr_inc");
         idpi->unsafeOperation = true;
@@ -1008,5 +1014,7 @@ namespace das
         auto bta = addExtern<DAS_BIND_FUN(builtin_temp_array)>(*this, lib, "_builtin_temp_array", SideEffects::invoke, "builtin_temp_array");
         bta->unsafeOperation = true;
         bta->privateFunction = true;
+        // migrate data
+        addExtern<DAS_BIND_FUN(is_in_aot)>(*this, lib, "is_in_aot", SideEffects::worstDefault, "is_in_aot");
     }
 }

@@ -73,7 +73,8 @@ namespace das {
         bool isTemp( bool topLevel = true, bool refMatters = true) const;
         bool isTemp(bool topLevel, bool refMatters, das_set<Structure*> & dep) const;
         bool isTempType(bool refMatters = true) const;
-        bool isAotAlias () const;
+        bool isFullyInferred(das_set<Structure*> & dep) const;
+        bool isFullyInferred() const;
         bool isShareable(das_set<Structure*> & dep) const;
         bool isShareable() const;
         bool isIndex() const;
@@ -123,12 +124,13 @@ namespace das {
         bool isString() const;
         bool isConst() const;
         bool isFoldable() const;
-        bool isAlias() const;
-        bool isAliasOrExpr() const;
         void collectAliasList(vector<string> & aliases) const;
         bool isAutoArrayResolved() const;
         bool isAuto() const;
         bool isAutoOrAlias() const;
+        bool isAotAlias () const;
+        bool isAlias() const;
+        bool isAliasOrExpr() const;
         bool isVectorType() const;
         bool isBitfield() const;
         bool isLocal() const;
@@ -184,6 +186,7 @@ namespace das {
                 bool    smartPtr : 1;
                 bool    smartPtrNative : 1;
                 bool    isExplicit : 1;
+                bool    isNativeDim : 1;
             };
             uint32_t flags = 0;
         };
@@ -356,6 +359,16 @@ namespace das {
         }
     };
 
+    template <typename ResultType, typename ...Args>
+    struct typeFactory<TLambda<ResultType,Args...>> {
+        static ___noinline TypeDeclPtr make(const ModuleLibrary & lib) {
+            auto t = make_smart<TypeDecl>(Type::tLambda);
+            t->firstType = typeFactory<ResultType>::make(lib);
+            t->argTypes = { typeFactory<Args>::make(lib)... };
+            return t;
+        }
+    };
+
     template <typename TT>
     struct typeFactory<TTemporary<TT>> {
         static ___noinline TypeDeclPtr make(const ModuleLibrary & lib) {
@@ -442,6 +455,7 @@ namespace das {
             auto t = typeFactory<TT>::make(lib);
             t->dim.push_back(dim);
             t->ref = false;
+            t->isNativeDim = true;
             return t;
         }
     };

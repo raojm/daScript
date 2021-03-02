@@ -670,6 +670,7 @@ namespace das
     static std::mutex g_DebugAgentMutex;
     static DebugAgentPtr g_DebugAgent;
     static unique_ptr<Context>   g_DebugAgentContext;
+    static bool                  g_isInDebugAgentCreation;
 
     Context::Context(uint32_t stackSize, bool ph) : stack(stackSize) {
         code = make_smart<NodeAllocator>();
@@ -1069,13 +1070,35 @@ namespace das
         if ( g_DebugAgent ) g_DebugAgent->onInstall(g_DebugAgent.get());
     }
 
+    Context & getDebugAgentContext ( ) {
+        return *g_DebugAgentContext;
+    }
+
+}
+
+das::Context* get_clone_context( das::Context * ctx );//link time resolved dependencies
+
+namespace das
+{
+
     void forkDebugAgentContext ( Func exFn, Context * context, LineInfoArg * lineinfo ) {
-        unique_ptr<Context> forkContext = make_unique<Context>(*context);
+        g_isInDebugAgentCreation = true;
+        unique_ptr<Context> forkContext;
+        bool realPersistent = context->persistent;
+        context->persistent = true;
+        forkContext.reset(get_clone_context(context));
+        context->persistent = realPersistent;
+        g_isInDebugAgentCreation = false;
         vec4f args[1];
         args[0] = cast<Context *>::from(context);
         SimFunction * fun = forkContext->getFunction(exFn.index-1);
         forkContext->callOrFastcall(fun, args, lineinfo);
         swap ( g_DebugAgentContext, forkContext );
+    }
+
+    bool isInDebugAgentCreation()
+    {
+        return g_isInDebugAgentCreation;
     }
 
     void shutdownDebugAgent() {
@@ -1134,6 +1157,27 @@ namespace das
         exception = message;
 #if DAS_ENABLE_EXCEPTIONS
         throw dasException(message ? message : "");
+#else
+        if ( throwBuf ) {
+            longjmp(*throwBuf,1);
+        } else {
+            to_err("\nunhandled exception\n");
+            if ( exception ) {
+                to_err(exception);
+                to_err("\n");
+            }
+            stackWalk(nullptr, false, false);
+            os_debug_break();
+        }
+#endif
+#if !defined(_MSC_VER) || (_MSC_VER>1900)
+        exit(0);
+#endif
+    }
+
+    void Context::rethrow () {
+#if DAS_ENABLE_EXCEPTIONS
+        throw dasException(exception ? exception : "");
 #else
         if ( throwBuf ) {
             longjmp(*throwBuf,1);

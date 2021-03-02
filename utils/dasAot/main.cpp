@@ -3,6 +3,10 @@
 
 using namespace das;
 
+namespace das {
+    extern bool g_isInAot;
+}
+
 void require_project_specific_modules();//link time resolved dependencies
 das::FileAccessPtr get_file_access( char * pak );//link time resolved dependencies
 
@@ -173,6 +177,7 @@ bool compile ( const string & fn, const string & cppFn ) {
 #endif
 
 int MAIN_FUNC_NAME(int argc, char * argv[]) {
+    g_isInAot = true;
     setCommandLineArguments(argc, argv);
     #ifdef _MSC_VER
     _CrtSetReportMode(_CRT_ASSERT, 0);
@@ -211,6 +216,7 @@ int MAIN_FUNC_NAME(int argc, char * argv[]) {
     NEED_MODULE(Module_FIO);
     require_project_specific_modules();
     #include "modules/external_need.inc"
+    Module::Initialize();
     bool compiled = compile(argv[1], argv[2]);
     Module::Shutdown();
     return compiled ? 0 : -1;

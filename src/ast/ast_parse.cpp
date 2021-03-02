@@ -242,12 +242,14 @@ namespace das {
                               TextWriter & logs,
                               ModuleGroup & libGroup,
                               bool exportAll,
+                              bool isDep,
                               CodeOfPolicies policies ) {
         auto time0 = ref_time_ticks();
         int err;
         auto program = g_Program = make_smart<Program>();
         program->promoteToBuiltin = false;
         program->isCompiling = true;
+        program->isDependency = isDep;
         g_Program->policies = policies;
         g_Access = access;
         g_ReaderMacro = nullptr;
@@ -333,7 +335,7 @@ namespace das {
         if ( getPrerequisits(fileName, access, req, missing, circular, dependencies, libGroup, nullptr, 1, !policies.ignore_shared_modules) ) {
             for ( auto & mod : req ) {
                 if ( !libGroup.findModule(mod.moduleName) ) {
-                    auto program = parseDaScript(mod.fileName, access, logs, libGroup, true, policies);
+                    auto program = parseDaScript(mod.fileName, access, logs, libGroup, true, true, policies);
                     if ( program->failed() ) {
                         return program;
                     }
@@ -357,6 +359,18 @@ namespace das {
                         program->thisModule->name = mod.moduleName;
                     }
                     if ( program->promoteToBuiltin ) {
+                        bool regFromShar = false;
+                        for ( auto & reqM : program->thisModule->requireModule ) {
+                            if ( !reqM.first->builtIn ) {
+                                program->error("Shared module " + program->thisModule->name + " has incorrect dependency type.",
+                                    "Can't require " + reqM.first->name + " because its not shared", "", LineInfo(),
+                                        CompilationError::module_required_from_shared);
+                                regFromShar = true;
+                            }
+                        }
+                        if (  regFromShar ) {
+                            return program;
+                        }
                         program->thisModule->promoteToBuiltin(access);
                     }
                     libGroup.addModule(program->thisModule.release());
@@ -370,10 +384,12 @@ namespace das {
                     }, "*");
                 }
             }
-            auto res = parseDaScript(fileName, access, logs, libGroup, exportAll, policies);
+            auto res = parseDaScript(fileName, access, logs, libGroup, exportAll, false, policies);
+            /*
             if ( res->promoteToBuiltin ) {
                 res->thisModule->promoteToBuiltin(access);
             }
+            */
             if ( res->options.getBoolOption("log_require",false) ) {
                 TextWriter tw;
                 req.clear();

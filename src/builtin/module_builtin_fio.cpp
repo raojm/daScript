@@ -277,7 +277,12 @@ namespace das {
             context.invoke(*block, bargs, nullptr);
         }  else {
             buf[rlen] = 0;
-            bargs[0] = cast<char *>::from(buf);
+            das::Array arr;
+            arr.data = buf;
+            arr.size = rlen;
+            arr.capacity = rlen;
+            arr.lock = 1;
+            bargs[0] = cast<das::Array*>::from(&arr);
             context.invoke(*block, bargs, nullptr);
         }
         free(buf);
@@ -335,7 +340,8 @@ namespace das {
         }
     }
 
-    bool builtin_fstat ( const FILE * f, FStat & fs ) {
+    bool builtin_fstat ( const FILE * f, FStat & fs, Context * context, LineInfoArg * at ) {
+        if ( !f ) context->throw_error_at(*at, "fstat of null");
         return fstat(fileno((FILE *)f), &fs.stats) == 0;
     }
 

@@ -343,6 +343,7 @@ namespace das
         string                  name;
         vector<ExpressionPtr>   arguments;
         bool                    argumentsFailedToInfer = false;
+        TypeDeclPtr             aliasSubstitution;  // only used during infer
     };
 
     struct ExprCallMacro : ExprLooksLikeCall {
@@ -553,6 +554,12 @@ namespace das
     };
 
     struct ExprConstEnumeration : ExprConst {
+        ExprConstEnumeration(int val, const TypeDeclPtr & td)
+            : ExprConst(Type::tEnumeration) {
+            __rtti = "ExprConstEnumeration";
+            enumType = td->enumType;
+            text = td->enumType->find(int64_t(val),"");
+        }
         ExprConstEnumeration(const string & name = string(), const TypeDeclPtr & td = nullptr)
             : ExprConst(Type::tEnumeration), text(name) {
             __rtti = "ExprConstEnumeration";

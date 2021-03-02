@@ -136,7 +136,6 @@ bool unit_test ( const string & fn, bool useAot ) {
                     return false;
                 }
                 ctx.restart();
-                ctx.runInitScript();    // this is here for testing purposes only
                 bool result = cast<bool>::to(ctx.eval(fnTest, nullptr));
                 if ( auto ex = ctx.getException() ) {
                     tout << "exception: " << ex << "\n";
@@ -328,7 +327,6 @@ bool run_module_test ( const string & path, const string & main, bool usePak ) {
                     return false;
                 }
                 ctx.restart();
-                ctx.runInitScript();    // this is here for testing purposes only
                 bool result = cast<bool>::to(ctx.eval(fnTest, nullptr));
                 if ( auto ex = ctx.getException() ) {
                     tout << "exception: " << ex << "\n";
@@ -380,6 +378,8 @@ int main( int argc, char * argv[] ) {
     NEED_MODULE(Module_UriParser);
     NEED_MODULE(Module_JobQue);
     NEED_MODULE(Module_FIO);
+    Module::Initialize();
+    // aot library
     g_aotLib = make_unique<AotLibrary>();
     AotListBase::registerAot(*g_aotLib);
 #if 0 // Debug this one test

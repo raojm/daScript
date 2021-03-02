@@ -82,6 +82,16 @@ namespace das {
 
     void resetFusionEngine();
 
+    void Module::Initialize() {
+        bool all = false;
+        while ( !all ) {
+            all = true;
+            for ( auto m = modules; m ; m = m->next ) {
+                all &= m->initDependencies();
+            }
+        }
+    }
+
     void Module::Shutdown() {
         ReuseGuard<TypeDecl> rguard;
         shutdownDebugAgent();
@@ -340,6 +350,13 @@ namespace das {
         return it != functions.end() ? it->second : FunctionPtr();
     }
 
+    FunctionPtr Module::findUniqueFunction ( const string & mangledName ) const {
+        auto it = functionsByName.find(mangledName);
+        if ( it==functionsByName.end() ) return nullptr;
+        if ( it->second.size()!=1 ) return nullptr;
+        return it->second[0];
+    }
+
     StructurePtr Module::findStructure ( const string & na ) const {
         auto it = structures.find(na);
         return it != structures.end() ? it->second : StructurePtr();
@@ -575,6 +592,16 @@ namespace das {
             if ( !any && pm->name!=moduleName ) continue;
             if ( !func(pm) ) break;
         }
+    }
+
+    void ModuleLibrary::foreach_in_order ( const callable<bool (Module * module)> & func, Module * thisM ) const {
+        DAS_ASSERT(modules.size());
+        // {builtin} {THIS_MODULE} {require1} {require2} ...
+        for ( auto m = modules.begin(); m!=modules.end(); ++m ) {
+            if ( *m==thisM ) continue;
+            if ( !func(*m) ) return;
+        }
+        func(thisM);
     }
 
     Module * ModuleLibrary::findModule ( const string & mn ) const {

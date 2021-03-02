@@ -20,6 +20,125 @@ SETUP_COMPILER()
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+MACRO(DAS_AOT input genList mainTarget dasAotTool)
+    get_filename_component(input_src ${input} ABSOLUTE)
+    get_filename_component(input_dir ${input_src} DIRECTORY)
+    get_filename_component(input_name ${input} NAME)
+    set(out_dir ${input_dir}/_aot_generated)
+    set(out_src ${out_dir}/${input_name}.cpp)
+    file(MAKE_DIRECTORY ${out_dir})
+	ADD_CUSTOM_COMMAND(
+		DEPENDS ${input_src}
+        DEPENDS ${dasAotTool}
+        OUTPUT  ${out_src}
+        COMMENT "AOT precompiling ${input_src} -> ${out_src}"
+        COMMAND ${dasAotTool} ${input_src} ${out_src}
+    )
+    list(APPEND ${genList} ${out_src})
+    set(custom_name ${mainTarget}_${input_name}_aot)
+    ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${out_src})
+    SET_TARGET_PROPERTIES(${custom_name} PROPERTIES FOLDER _${mainTarget}_aot)
+    ADD_DEPENDENCIES(${mainTarget} ${custom_name})
+ENDMACRO()
+
+MACRO(DAS_AOT_D input genList mainTarget dasAotTool)
+    get_filename_component(input_src ${input} ABSOLUTE)
+    get_filename_component(input_dir ${input_src} DIRECTORY)
+    get_filename_component(input_name ${input} NAME)
+    set(out_dir ${input_dir}/_aot_generated)
+    set(out_src ${out_dir}/${input_name}.cpp)
+    file(MAKE_DIRECTORY ${out_dir})
+	ADD_CUSTOM_COMMAND(
+		DEPENDS ${input_src}
+        DEPENDS ${dasAotTool}
+        OUTPUT  ${out_src}
+        COMMENT "AOT precompiling ${input_src} -> ${out_src}"
+        COMMAND ${dasAotTool} ${input_src} ${out_src}
+    )
+    list(APPEND ${genList} ${out_src})
+ENDMACRO()
+
+SET(AOT_BATCH_SIZE 10)
+
+MACRO(DAS_AOT_DIR inFiles genList mainTarget dasAotTool)
+    set(file_index 0)
+    set(batch_index 0)
+    set(batch_list)
+    FOREACH(inF ${inFiles})
+        DAS_AOT_D(${inF} batch_list ${mainTarget} ${dasAotTool})
+        math(EXPR file_index "${file_index} + 1")
+        if(file_index EQUAL ${AOT_BATCH_SIZE})
+            set(custom_name ${mainTarget}_${batch_index}_aot)
+            ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${batch_list})
+            ADD_DEPENDENCIES(${mainTarget} ${custom_name})
+            list(APPEND ${genList} ${batch_list})
+            set(file_index 0)
+            math(EXPR batch_index "${batch_index} + 1")
+            set(batch_list)
+        endif()
+    ENDFOREACH()
+    if(NOT(file_index EQUAL "0"))
+        set(custom_name ${mainTarget}_${batch_index}_aot)
+        ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${batch_list})
+        ADD_DEPENDENCIES(${mainTarget} ${custom_name})
+        list(APPEND ${genList} ${batch_list})
+    endif()
+ENDMACRO()
+
+SET(UNITZE_BUILD_BATCH_SIZE 10)
+
+MACRO(UNITIZE_BUILD input_dir genList)
+    set(unitList)
+    set(files ${${genList}})
+    set(out_dir "${CMAKE_SOURCE_DIR}/${input_dir}/_aot_generated")
+    set_source_files_properties(${files} PROPERTIES HEADER_FILE_ONLY true)
+    set(unit_build_file "")
+    set(file_index 0)
+    set(batch_index 0)
+    foreach(source_file ${files} )
+        if(file_index EQUAL "0")
+            set(unit_build_file "${out_dir}/unity_build_${batch_index}.cpp")
+            FILE(WRITE ${unit_build_file} "// unity build batch ${batch_index}\n")
+            list(APPEND unitList ${unit_build_file})
+        endif()
+        get_filename_component(input_name ${source_file} NAME)
+        FILE(APPEND ${unit_build_file} "#include \"${input_name}\"\n")
+        math(EXPR file_index "${file_index} + 1")
+        if(file_index EQUAL ${UNITZE_BUILD_BATCH_SIZE})
+            set(file_index 0)
+            math(EXPR batch_index "${batch_index} + 1")
+        endif()
+    endforeach()
+    list(APPEND ${genList} ${unitList})
+ENDMACRO()
+
+FIND_PROGRAM(CLANG_BIN_EXE clang)
+IF(CLANG_BIN_EXE)
+    MACRO(CPP_BIND_AST tgt generate_das header_from prefix src_dir inc_dirs extras)
+        MESSAGE(STATUS "Generating C++ bindings target ${tgt} from ${header_from}")
+        ADD_CUSTOM_TARGET(${tgt})
+        ADD_DEPENDENCIES(${tgt} daScript)
+        ADD_CUSTOM_COMMAND(
+            TARGET ${tgt}
+            WORKING_DIRECTORY ${src_dir}
+            VERBATIM
+            COMMAND ${CLANG_BIN_EXE} -Xclang -ast-dump=json -x c++ -c ${header_from} -I${inc_dirs} > ${header_from}.json 2> ${header_from}.json.log || cmd /c exit /b 0
+            COMMENT "Generating JSON AST for ${header_from} to ${header_from}.json\ninclude directoryes are ${inc_dirs}\n"
+        )
+        ADD_CUSTOM_COMMAND(
+            TARGET ${tgt}
+            WORKING_DIRECTORY ${src_dir}
+            VERBATIM
+            COMMAND daScript ${generate_das} -args ${header_from}.json ${prefix} "${extras}"
+            COMMENT "Generating C++ bindings from ${header_from}.json\n"
+        )
+    ENDMACRO()
+ELSE()
+    MACRO(CPP_BIND_AST tgt generate_das header_from prefix src_dir inc_dirs)
+        MESSAGE(STATUS "Skipping C++ bindings from ${header_from}")
+    ENDMACRO()
+ENDIF()
+
 SET(DAS_MODULES_RESOLVE_INC ${PROJECT_SOURCE_DIR}/include/modules/external_resolve.inc)
 SET(DAS_MODULES_NEED_INC ${PROJECT_SOURCE_DIR}/include/modules/external_need.inc)
 FILE(WRITE ${DAS_MODULES_RESOLVE_INC}.temp "")
@@ -371,98 +490,6 @@ ADD_DEPENDENCIES(dasAot libDaScript libDaScriptProfile libDaScriptTest libDasMod
 SETUP_CPP11(dasAot)
 SETUP_LTO(dasAot)
 
-MACRO(DAS_AOT input genList mainTarget dasAotTool)
-    get_filename_component(input_src ${input} ABSOLUTE)
-    get_filename_component(input_dir ${input_src} DIRECTORY)
-    get_filename_component(input_name ${input} NAME)
-    set(out_dir ${input_dir}/_aot_generated)
-    set(out_src ${out_dir}/${input_name}.cpp)
-    file(MAKE_DIRECTORY ${out_dir})
-	ADD_CUSTOM_COMMAND(
-		DEPENDS ${input_src}
-        DEPENDS ${dasAotTool}
-        OUTPUT  ${out_src}
-        COMMENT "AOT precompiling ${input_src} -> ${out_src}"
-        COMMAND ${dasAotTool} ${input_src} ${out_src}
-    )
-    list(APPEND ${genList} ${out_src})
-    set(custom_name ${mainTarget}_${input_name}_aot)
-    ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${out_src})
-    SET_TARGET_PROPERTIES(${custom_name} PROPERTIES FOLDER _${mainTarget}_aot)
-    ADD_DEPENDENCIES(${mainTarget} ${custom_name})
-ENDMACRO()
-
-MACRO(DAS_AOT_D input genList mainTarget dasAotTool)
-    get_filename_component(input_src ${input} ABSOLUTE)
-    get_filename_component(input_dir ${input_src} DIRECTORY)
-    get_filename_component(input_name ${input} NAME)
-    set(out_dir ${input_dir}/_aot_generated)
-    set(out_src ${out_dir}/${input_name}.cpp)
-    file(MAKE_DIRECTORY ${out_dir})
-	ADD_CUSTOM_COMMAND(
-		DEPENDS ${input_src}
-        DEPENDS ${dasAotTool}
-        OUTPUT  ${out_src}
-        COMMENT "AOT precompiling ${input_src} -> ${out_src}"
-        COMMAND ${dasAotTool} ${input_src} ${out_src}
-    )
-    list(APPEND ${genList} ${out_src})
-ENDMACRO()
-
-SET(AOT_BATCH_SIZE 10)
-
-MACRO(DAS_AOT_DIR inFiles genList mainTarget dasAotTool)
-    set(file_index 0)
-    set(batch_index 0)
-    set(batch_list)
-    FOREACH(inF ${inFiles})
-        DAS_AOT_D(${inF} batch_list ${mainTarget} ${dasAotTool})
-        math(EXPR file_index "${file_index} + 1")
-        if(file_index EQUAL ${AOT_BATCH_SIZE})
-            set(custom_name ${mainTarget}_${batch_index}_aot)
-            ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${batch_list})
-            ADD_DEPENDENCIES(${mainTarget} ${custom_name})
-            list(APPEND ${genList} ${batch_list})
-            set(file_index 0)
-            math(EXPR batch_index "${batch_index} + 1")
-            set(batch_list)
-        endif()
-    ENDFOREACH()
-    if(NOT(file_index EQUAL "0"))
-        set(custom_name ${mainTarget}_${batch_index}_aot)
-        ADD_CUSTOM_TARGET(${custom_name} ALL DEPENDS ${batch_list})
-        ADD_DEPENDENCIES(${mainTarget} ${custom_name})
-        list(APPEND ${genList} ${batch_list})
-    endif()
-ENDMACRO()
-
-SET(UNITZE_BUILD_BATCH_SIZE 10)
-
-MACRO(UNITIZE_BUILD input_dir genList)
-    set(unitList)
-    set(files ${${genList}})
-    set(out_dir "${CMAKE_SOURCE_DIR}/${input_dir}/_aot_generated")
-    set_source_files_properties(${files} PROPERTIES HEADER_FILE_ONLY true)
-    set(unit_build_file "")
-    set(file_index 0)
-    set(batch_index 0)
-    foreach(source_file ${files} )
-        if(file_index EQUAL "0")
-            set(unit_build_file "${out_dir}/unity_build_${batch_index}.cpp")
-            FILE(WRITE ${unit_build_file} "// unity build batch ${batch_index}\n")
-            list(APPEND unitList ${unit_build_file})
-        endif()
-        get_filename_component(input_name ${source_file} NAME)
-        FILE(APPEND ${unit_build_file} "#include \"${input_name}\"\n")
-        math(EXPR file_index "${file_index} + 1")
-        if(file_index EQUAL ${UNITZE_BUILD_BATCH_SIZE})
-            set(file_index 0)
-            math(EXPR batch_index "${batch_index} + 1")
-        endif()
-    endforeach()
-    list(APPEND ${genList} ${unitList})
-ENDMACRO()
-
 add_custom_target(dasAotStub)
 SET(AOT_GENERATED_SRC)
 DAS_AOT("daslib/functional.das" AOT_GENERATED_SRC dasAotStub dasAot)
@@ -758,3 +785,12 @@ DAS_TUTORIAL(tutorial04 "${TUTORIAL_04_SRC}")
 target_include_directories(tutorial04 PUBLIC ${CMAKE_SOURCE_DIR}/src/builtin)   # we need RTTI to bind StructInfo and such
 XXD(examples/tutorial/tutorial04module.das)
 
+##########################
+# tutorial 05 - coroutines
+##########################
+SET(TUTORIAL_05_SRC
+examples/tutorial/tutorial.inc
+examples/tutorial/tutorial05.cpp
+examples/tutorial/tutorial05.das
+)
+DAS_TUTORIAL(tutorial05 "${TUTORIAL_05_SRC}")

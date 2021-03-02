@@ -89,8 +89,11 @@ namespace das {
                 if ( suffix != "bin" ) {
                     ep = get_prefix(ep);            // remove debug
                 }
-                DAS_ASSERT(get_suffix(ep)=="bin");
-                g_dasRoot = get_prefix(ep);         // remove bin
+                if ( get_suffix(ep)!="bin" ) {
+                    g_dasRoot = ".";
+                } else {
+                    g_dasRoot = get_prefix(ep);     // remove bin
+                }
             } else {
                 g_dasRoot = ".";
             }

@@ -13,9 +13,11 @@
 namespace das
 {
     #define DAS_BIND_FUN(a)                     decltype(&a), a
+    #define DAS_BIND_MEMBER_FUN(a)              decltype(&a), &a
     #define DAS_BIND_PROP(BIGTYPE,FIELDNAME)    decltype(&BIGTYPE::FIELDNAME), &BIGTYPE::FIELDNAME
-
     #define DAS_BIND_FIELD(BIGTYPE,FIELDNAME)   decltype(das::declval<BIGTYPE>().FIELDNAME), offsetof(BIGTYPE,FIELDNAME)
+
+    #define DAS_CALL_METHOD(mname)              DAS_BIND_FUN(mname::invoke)
 
     #ifndef DAS_ENABLE_SMART_PTR_TRACKING
     #define DAS_ENABLE_SMART_PTR_TRACKING   0
@@ -295,6 +297,7 @@ namespace das
         DAS_NORETURN_PREFIX void throw_error ( const char * message ) DAS_NORETURN_SUFFIX;
         DAS_NORETURN_PREFIX void throw_error_ex ( const char * message, ... ) DAS_NORETURN_SUFFIX;
         DAS_NORETURN_PREFIX void throw_error_at ( const LineInfo & at, const char * message, ... ) DAS_NORETURN_SUFFIX;
+        DAS_NORETURN_PREFIX void rethrow () DAS_NORETURN_SUFFIX;
 
         __forceinline SimFunction * getFunction ( int index ) const {
             return (index>=0 && index<totalFunctions) ? functions + index : nullptr;
@@ -652,6 +655,8 @@ namespace das
     void installDebugAgent ( DebugAgentPtr newAgent );
     void shutdownDebugAgent();
     void forkDebugAgentContext ( Func exFn, Context * context, LineInfoArg * lineinfo );
+    bool isInDebugAgentCreation();
+    Context & getDebugAgentContext ( );
 
     class SharedStackGuard {
     public:

@@ -12,6 +12,7 @@
 #pragma warning(disable:4702)    // unreachable code (due to exceptions)
 #pragma warning(disable:4316)    // '__m128': object allocated on the heap may not be aligned 16
 #pragma warning(disable:4714)    // marked as __forceinline not inlined
+#pragma warning(disable:4180)    // qualifier applied to function type has no meaning; ignored
 #endif
 
 #ifdef __clang__
@@ -99,11 +100,13 @@
 #endif
 
 #if defined(_MSC_VER) && !defined(__clang__)
+#if !defined(_MSVC_LANG) || _MSVC_LANG < 201703L
 __forceinline uint32_t __builtin_clz(uint32_t x) {
     unsigned long r = 0;
     _BitScanReverse(&r, x);
     return uint32_t(31 - r);
 }
+#endif
 #endif
 
 #ifdef _MSC_VER

@@ -139,7 +139,7 @@ MAKE_TYPE_FACTORY(ExprUnsafe,ExprUnsafe);
 
 DAS_BASE_BIND_ENUM(das::SideEffects, SideEffects,
     none, unsafe, userScenario, modifyExternal, accessExternal, modifyArgument,
-    modifyArgumentAndExternal, worstDefault, accessGlobal, invoke, inferedSideEffects)
+    modifyArgumentAndExternal, worstDefault, accessGlobal, invoke, inferredSideEffects)
 
 DAS_BASE_BIND_ENUM(das::CaptureMode, CaptureMode,
     capture_any, capture_by_copy, capture_by_reference, capture_by_clone, capture_by_move)
@@ -976,7 +976,7 @@ namespace das {
         ft->argNames = { "ref", "constant", "temporary", "_implicit",
             "removeRef", "removeConstant", "removeDim",
             "removeTemporary", "explicitConst", "aotAlias", "smartPtr",
-            "smartPtrNative", "isExplicit" };
+            "smartPtrNative", "isExplicit", "isNativeDim" };
         return ft;
     }
 
@@ -1191,7 +1191,7 @@ namespace das {
         ft->alias = "VariableFlags";
         ft->argNames = { "init_via_move", "init_via_clone", "used", "aliasCMRES",
             "marked_used", "global_shared", "do_not_delete", "generated",
-            "capture_as_ref", "can_shadow" };
+            "capture_as_ref", "can_shadow", "private_variable" };
         return ft;
     }
 
@@ -2213,7 +2213,7 @@ namespace das {
 
     bool addModuleVariable ( Module * module, VariablePtr & _var, Context * ) {
         VariablePtr var = move(_var);
-        return module->addVariable(move(var), false);
+        return module->addVariable(move(var), true);
     }
 
     bool addModuleStructure ( Module * module, StructurePtr & _struct, Context * ) {
@@ -2265,15 +2265,27 @@ namespace das {
         return g_Program;
     }
 
-    void astVisit ( smart_ptr_raw<Program> program, smart_ptr_raw<VisitorAdapter> adapter ) {
+    void astVisit ( smart_ptr_raw<Program> program, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info ) {
+        if (!adapter)
+            context->throw_error_at(*line_info, "adapter is required");
+        if (!program)
+            context->throw_error_at(*line_info, "program is required");
         program->visit(*adapter);
     }
 
-    void astVisitFunction ( smart_ptr_raw<Function> func, smart_ptr_raw<VisitorAdapter> adapter ) {
+    void astVisitFunction ( smart_ptr_raw<Function> func, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info ) {
+        if (!adapter)
+            context->throw_error_at(*line_info, "adapter is required");
+        if (!func)
+            context->throw_error_at(*line_info, "func is required");
         func->visit(*adapter);
     }
 
-    void astVisitExpression ( smart_ptr_raw<Expression> expr, smart_ptr_raw<VisitorAdapter> adapter ) {
+    void astVisitExpression ( smart_ptr_raw<Expression> expr, smart_ptr_raw<VisitorAdapter> adapter, Context * context, LineInfoArg * line_info ) {
+        if (!adapter)
+            context->throw_error_at(*line_info, "adapter is required");
+        if (!expr)
+            context->throw_error_at(*line_info, "expr is required");
         expr->visit(*adapter);
     }
 
@@ -2701,6 +2713,8 @@ namespace das {
                 SideEffects::none, "clone_expression");
             addExtern<DAS_BIND_FUN(clone_function)>(*this, lib,  "clone_function",
                 SideEffects::none, "clone_function");
+            addExtern<DAS_BIND_FUN(clone_variable)>(*this, lib,  "clone_variable",
+                SideEffects::none, "clone_variable");
             // type
             addExtern<DAS_BIND_FUN(isSameAstType)>(*this, lib,  "is_same_type",
                 SideEffects::none, "isSameAstType");

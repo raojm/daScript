@@ -20,8 +20,12 @@ def is_local_expr ( expr:ExpressionPtr )
     elif expr is ExprField
         unsafe
             let ef = reinterpret<ExprField?>(expr)
-            if !ef.value._type.isHandle
+            if !(ef.value._type.baseType==Type tHandle) || (ef.value._type.isLocal)
                 return is_local_expr(ef.value)
+    elif expr is ExprSwizzle
+        unsafe
+            let ef = reinterpret<ExprSwizzle?>(expr)
+            return is_local_expr(ef.value)
     return false
 
 def is_local_or_global_expr ( expr:ExpressionPtr )
@@ -37,8 +41,12 @@ def is_local_or_global_expr ( expr:ExpressionPtr )
     elif expr is ExprField
         unsafe
             let ef = reinterpret<ExprField?>(expr)
-            if !ef.value._type.isHandle
+            if !(ef.value._type.baseType==Type tHandle) || (ef.value._type.isLocal)
                 return is_local_or_global_expr(ef.value)
+    elif expr is ExprSwizzle
+        unsafe
+            let ef = reinterpret<ExprSwizzle?>(expr)
+            return is_local_or_global_expr(ef.value)
     return false
 
 def is_scope_expr ( expr:ExpressionPtr )
@@ -52,6 +60,10 @@ def is_scope_expr ( expr:ExpressionPtr )
     elif expr is ExprField
         unsafe
             let ef = reinterpret<ExprField?>(expr)
-            if !ef.value._type.isHandle
+            if !(ef.value._type.baseType==Type tHandle) || (ef.value._type.isLocal)
                 return is_scope_expr(ef.value)
+    elif expr is ExprSwizzle
+        unsafe
+            let ef = reinterpret<ExprSwizzle?>(expr)
+            return is_scope_expr(ef.value)
     return false

@@ -310,7 +310,7 @@ namespace das {
                 }
             }
             TypeDeclPtr mtd = program->makeTypeDeclaration(LineInfo(),name);
-            return mtd->isAlias() ? nullptr : mtd;
+            return (!mtd || mtd->isAlias()) ? nullptr : mtd;
         }
 
         // WARNING: this is really really slow, use faster tests when u can isAutoOrAlias for one
@@ -509,6 +509,16 @@ namespace das {
             } else if ( pFn->module==mod || pFn->module==thisMod ) {
                 return true;
             } else if ( pFn->fromGeneric && (pFn->fromGeneric->module==mod || pFn->fromGeneric->module==thisMod) ) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        bool canAccessGlobal ( const VariablePtr & pVar, Module * mod, Module * thisMod ) const {
+            if ( !pVar->private_variable ) {
+                return true;
+            } else if ( pVar->module==mod || pVar->module==thisMod ) {
                 return true;
             } else {
                 return false;
@@ -767,6 +777,25 @@ namespace das {
             return ss.str();
         }
 
+        string describeMismatchingArgument( const string & argName, const TypeDeclPtr & passType, const TypeDeclPtr & argType, int argIndex ) const {
+            TextWriter ss;
+            ss << "\t\tinvalid argument " << argName << " (" << argIndex << "). expecting "
+                << describeType(argType) << ", passing " << describeType(passType) << "\n";
+            if (passType->isAlias()) {
+                ss << "\t\t" << reportAliasError(passType) << "\n";
+            }
+            if ( argType->isRef() && !passType->isRef() ) {
+                ss << "\t\tcan't pass non-ref to ref\n";
+            }
+            if ( argType->isRef() && !argType->constant && passType->constant ) {
+                ss << "\t\tcan't ref types can only add constness\n";
+            }
+            if ( argType->isPointer() && !argType->constant && passType->constant) {
+                ss << "\t\tpointer types can only add constness\n";
+            }
+            return ss.str();
+        }
+
         string describeMismatchingFunction(const FunctionPtr & pFn, const vector<MakeFieldDeclPtr> & arguments, bool inferAuto, bool inferBlock) const {
             if ( pFn->arguments.size() < arguments.size() ) {
                 return "\t\ttoo many arguments\n";
@@ -798,13 +827,10 @@ namespace das {
                     }
                     fnArgIndex ++;
                 }
-                if (!isMatchingArgument(pFn, pFn->arguments[fnArgIndex]->type, arg->value->type,inferAuto,inferBlock)) {
-                    ss << "\t\tinvalid argument " << arg->name << ". expecting "
-                        << describeType(pFn->arguments[fnArgIndex]->type) << ", passing " << describeType(arg->value->type) << "\n";
-                    if (arg->value->type->isAlias()) {
-                        ss << "\t\t" << reportAliasError(arg->value->type) << "\n";
-                    }
-                    return ss.str();
+                auto & passType = arg->value->type;
+                auto & argType = pFn->arguments[fnArgIndex]->type;
+                if (!isMatchingArgument(pFn, pFn->arguments[fnArgIndex]->type, passType,inferAuto,inferBlock)) {
+                    ss << describeMismatchingArgument(arg->name, passType, argType, (int)ai);
                 }
                 fnArgIndex ++;
             }
@@ -826,11 +852,7 @@ namespace das {
                 auto & arg = pFn->arguments[ai];
                 auto & passType = types[ai];
                 if (!isMatchingArgument(pFn, arg->type, passType, inferAuto, inferBlock)) {
-                    ss << "\t\tinvalid argument " << arg->name << ". expecting "
-                        << describeType(arg->type) << ", passing " << describeType(passType) << "\n";
-                    if ( passType->isAlias() ) {
-                        ss << "\t\t" << reportAliasError(passType) << "\n";
-                    }
+                    ss << describeMismatchingArgument(arg->name, passType, arg->type, (int)ai);
                 }
             }
             for ( ; ai!= pFn->arguments.size(); ++ai ) {
@@ -1208,7 +1230,7 @@ namespace das {
                         lastEnuValue = nextValue.get();
                         return nextValue;
                     } else {
-                        error("enumeration value " + name + " can't be infered yet",  "", "",
+                        error("enumeration value " + name + " can't be inferred yet",  "", "",
                             enu->at);
                     }
                 } else {
@@ -1220,7 +1242,7 @@ namespace das {
                 }
             } else {
                 if ( !value->type ) {
-                    error("enumeration value " + name + " can't be infered yet",  "", "",
+                    error("enumeration value " + name + " can't be inferred yet",  "", "",
                         value->at);
                 } else if ( !value->type || !value->type->isInteger() ) {
                     error("enumeration value " + name + " has to be signed or unsigned integer of any size", "", "",
@@ -1264,7 +1286,7 @@ namespace das {
             Visitor::preVisitStructureField(that, decl, last);
             that->fieldLookup[decl.name] = fieldIndex++;
             if ( decl.type->isAuto() && !decl.init) {
-                error("structure field type can't be infered, it needs an initializer", "", "",
+                error("structure field type can't be inferred, it needs an initializer", "", "",
                       decl.at, CompilationError::cant_infer_missing_initializer );
             }
         }
@@ -1297,7 +1319,7 @@ namespace das {
             if ( decl.type->isAuto() && decl.init && decl.init->type ) {
                 auto varT = TypeDecl::inferGenericType(decl.type, decl.init->type);
                 if ( !varT ) {
-                    error("structure field initialization type can't be infered, "
+                    error("structure field initialization type can't be inferred, "
                           + describeType(decl.type) + " = " + describeType(decl.init->type), "", "",
                           decl.at, CompilationError::invalid_structure_field_type );
                 } else {
@@ -1346,8 +1368,8 @@ namespace das {
             }
             // TODO: verify. correct test is in fact the one bellow
             //  if ( isFullySealedType(decl.type) ) {
-            // but the auto \ alias test may be sufficient
-            if ( !decl.type->isAutoOrAlias() ) {
+            // isFullyInferred may be sufficient
+            if ( decl.type->isFullyInferred() ) {
                 int fieldAlignemnt = decl.type->getAlignOf();
                 int fa = fieldAlignemnt - 1;
                 if ( cppLayout ) {
@@ -1390,7 +1412,7 @@ namespace das {
         virtual void preVisitGlobalLet ( const VariablePtr & var ) override {
             Visitor::preVisitGlobalLet(var);
             if ( var->type->isAuto() && !var->init) {
-                error("global variable type can't be infered, it needs an initializer", "", "",
+                error("global variable type can't be inferred, it needs an initializer", "", "",
                       var->at, CompilationError::cant_infer_missing_initializer );
             }
             if ( var->type->isAlias() ) {
@@ -1408,7 +1430,7 @@ namespace das {
             if ( var->type->isAuto() ) {
                 auto varT = TypeDecl::inferGenericInitType(var->type, var->init->type);
                 if ( !varT || varT->isAlias() ) {
-                    error("global variable " + var->name + " initialization type can't be infered, "
+                    error("global variable " + var->name + " initialization type can't be inferred, "
                           + describeType(var->type) + " = " + describeType(var->init->type), "", "",
                           var->at, CompilationError::cant_infer_mismatching_restrictions );
                 } else {
@@ -1521,7 +1543,7 @@ namespace das {
             if (arg->type->isAuto() && arg->init->type) {
                 auto varT = TypeDecl::inferGenericType(arg->type, arg->init->type);
                 if ( !varT ) {
-                    error("generic argument type can't be infered, "
+                    error("generic argument type can't be inferred, "
                         + describeType(arg->type) + " = " + describeType(arg->init->type), "", "",
                         arg->at, CompilationError::cant_infer_generic );
                 } else {
@@ -1612,8 +1634,8 @@ namespace das {
             expr->type.reset();
         }
     // const
-        vec4f getEnumerationValue( ExprConstEnumeration * expr, bool & infered ) const {
-            infered = false;
+        vec4f getEnumerationValue( ExprConstEnumeration * expr, bool & inferred ) const {
+            inferred = false;
             auto cfa = expr->enumType->find(expr->text);
             if ( !cfa.second ) {
                 return v_zero();
@@ -1636,7 +1658,7 @@ namespace das {
             default:
                 DAS_ASSERTF( 0, "we should not even be here. unsupported enumeration type." );
             }
-            infered = true;
+            inferred = true;
             return envalue;
         }
         virtual ExpressionPtr visit ( ExprConst * c ) override {
@@ -1649,7 +1671,7 @@ namespace das {
                     c->type = cE->enumType->makeEnumType();
                     c->type->constant = true;
                 } else {
-                    error("enumeration value not infered yet",  "", "",
+                    error("enumeration value not inferred yet",  "", "",
                         c->at, CompilationError::invalid_enumeration);
                     c->type.reset();
                 }
@@ -2265,7 +2287,7 @@ namespace das {
         }
         virtual ExpressionPtr visit ( ExprMakeBlock * expr ) override {
             auto block = static_pointer_cast<ExprBlock>(expr->block);
-            // can only infer block type, if all argument types are infered
+            // can only infer block type, if all argument types are inferred
             for ( auto & arg : block->arguments ) {
                 if ( arg->type->isAlias() ) {
                     error(reportAliasError(arg->type),  "", "",
@@ -2328,7 +2350,7 @@ namespace das {
             expr->arguments[0] = Expression::autoDereference(expr->arguments[0]);
             auto blockT = expr->arguments[0]->type;
             if ( blockT->isAutoOrAlias() ) {
-                error("invoke argument not fully infered " + describeType(blockT),  "", "",
+                error("invoke argument not fully inferred " + describeType(blockT),  "", "",
                     expr->at, CompilationError::invalid_argument_type);
                 return Visitor::visit(expr);
             }
@@ -2348,31 +2370,12 @@ namespace das {
             for ( size_t i=0; i != blockT->argTypes.size(); ++i ) {
                 auto & passType = expr->arguments[i+1]->type;
                 auto & argType = blockT->argTypes[i];
-                // same type only
-                if ( !argType->implicit && !argType->isSameType(*passType, RefMatters::no, ConstMatters::no, TemporaryMatters::yes) ) {
-                    error("incomaptible argument " + to_string(i+1) + " " + describeType(passType) + " vs "
-                          + describeType(argType) + ", temporary matters",  "", "",
+                if ( !isMatchingArgument(nullptr, argType, passType, false,false) ) {
+                    auto extras = verbose ? ("\n" + describeMismatchingArgument(to_string(i+1), passType, argType, (int)i)) : "";
+                    error("incompatible argument " + to_string(i+1),
+                        "\t" + describeType(passType) + " vs " + describeType(argType) + extras, "",
                         expr->at, CompilationError::invalid_argument_type);
-                }
-                // can't pass non-ref to ref
-                if ( argType->isRef() && !passType->isRef() ) {
-                    error("incomaptible argument. can't pass non-ref to ref " + to_string(i+1) + " "
-                        + describeType(passType) + " vs " + describeType(argType), "", "",
-                        expr->at, CompilationError::invalid_argument_type);
-                }
-                // ref types can only add constness
-                if ( argType->isRef() && !argType->constant && passType->constant ) {
-                    error("incomaptible argument " + to_string(i+1) + " "
-                        + describeType(passType) + " vs " + describeType(argType)
-                        + ", passing const to non-const argument", "", "",
-                            expr->at, CompilationError::invalid_argument_type);
-                }
-                // pointer types can only add constant
-                if ( argType->isPointer() && !argType->constant && passType->constant ) {
-                    error("incomaptible argument " + to_string(i+1)
-                        + " " + describeType(passType) + " vs " + describeType(argType)
-                        + ", passing const pointer to non-const pointer argument", "", "",
-                          expr->at, CompilationError::invalid_argument_type);
+                    return Visitor::visit(expr);
                 }
                 // TODO: invoke with TEMP types
                 if ( !argType->isRef() )
@@ -2470,7 +2473,7 @@ namespace das {
             }
             // TODO: verify
             if ( expr->typeexpr->isAutoOrAlias() ) {
-                error("is " + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + " can't be infered", "", "",
+                error("is " + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + " can't be inferred", "", "",
                       expr->at, CompilationError::type_not_found);
                 return Visitor::visit(expr);
             }
@@ -2494,7 +2497,7 @@ namespace das {
             // TODO: verify, is this even necessary now that we have tests above?
             // if ( !isFullySealedType(expr->typeexpr) ) {
             if ( expr->typeexpr->isAutoOrAlias() ) {
-                error("is " + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + " can't be fully infered", "", "",
+                error("is " + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + " can't be fully inferred", "", "",
                       expr->at, CompilationError::type_not_found);
                 return Visitor::visit(expr);
             }
@@ -2526,7 +2529,7 @@ namespace das {
             }
         }
         if ( expr->typeexpr->isAutoOrAlias() ) {
-            error("type<" +  describeType(expr->typeexpr) + "> can't be fully infered",  "", "",
+            error("type<" +  describeType(expr->typeexpr) + "> can't be fully inferred",  "", "",
                 expr->at, CompilationError::type_not_found);
             return Visitor::visit(expr);
         }
@@ -2556,7 +2559,7 @@ namespace das {
             }
             //
             if ( !expr->typeexpr && !allowMissingTypeExpr ) {
-                error("typeinfo(" + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + ") can't be infered",  "", "",
+                error("typeinfo(" + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + ") can't be inferred",  "", "",
                     expr->at, CompilationError::type_not_found);
                 return Visitor::visit(expr);
             }
@@ -2579,7 +2582,7 @@ namespace das {
                     return Visitor::visit(expr);
                 }
                 if ( allowMissingType ? expr->typeexpr->isAuto() : expr->typeexpr->isAutoOrAlias() ) {
-                    error("typeinfo(" + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + ") can't be fully infered",  "", "",
+                    error("typeinfo(" + (expr->typeexpr ? describeType(expr->typeexpr) : "...") + ") can't be fully inferred",  "", "",
                         expr->at, CompilationError::type_not_found);
                     return Visitor::visit(expr);
                 }
@@ -2746,6 +2749,9 @@ namespace das {
                 } else if ( expr->trait=="is_local" ) {
                     reportAstChanged();
                     return make_smart<ExprConstBool>(expr->at, expr->typeexpr->isLocal());
+                } else if (expr->trait == "is_function") {
+                     reportAstChanged();
+                     return make_smart<ExprConstBool>(expr->at, expr->typeexpr->isFunction());
                 } else if ( expr->trait=="can_be_placed_in_container" ) {
                     reportAstChanged();
                     return make_smart<ExprConstBool>(expr->at, expr->typeexpr->canBePlacedInContainer());
@@ -3024,6 +3030,7 @@ namespace das {
                 error("can't delete constant expression " + describeType(expr->subexpr->type), "", "",
                       expr->at, CompilationError::bad_delete);
             } else if ( expr->subexpr->type->isPointer() ) {
+                TextPrinter tp;
                 if ( !safeExpression(expr) ) {
                     error("delete of pointer requires unsafe",  "", "",
                         expr->at, CompilationError::unsafe);
@@ -3036,6 +3043,7 @@ namespace das {
                         auto ptrf = getFinalizeFunc(expr->subexpr->type);
                         if ( ptrf.size()==0 ) {
                             auto fnDel = generatePointerFinalizer(expr->subexpr->type, expr->at);
+                            if ( !expr->alwaysSafe ) fnDel->unsafeOperation = true;
                             if ( !program->addFunction(fnDel) ) {
                                 reportMissingFinalizer("finalizer mismatch ", expr->at, expr->subexpr->type);
                                 return Visitor::visit(expr);
@@ -3697,7 +3705,7 @@ namespace das {
                 }
             }
             if ( var->type->isAuto() && !var->init) {
-                error("block argument type can't be infered, it needs an "
+                error("block argument type can't be inferred, it needs an "
                     "initializer or to be passed to the function with the explicit block definition", "", "",
                       var->at, CompilationError::cant_infer_missing_initializer );
             }
@@ -3707,10 +3715,15 @@ namespace das {
             verifyType(var->type,true);
         }
         virtual ExpressionPtr visitBlockArgumentInit (ExprBlock * block, const VariablePtr & arg, Expression * that ) override {
+            if ( !arg->init->type ) {
+                error("block argument initialization with undefined expression", "", "",
+                        arg->at, CompilationError::invalid_type );
+                return Visitor::visitBlockArgumentInit(block, arg, that);
+            }
             if ( arg->type->isAuto() ) {
                 auto argT = TypeDecl::inferGenericType(arg->type, arg->init->type);
                 if ( !argT ) {
-                    error("block argument initialization type can't be infered, "
+                    error("block argument initialization type can't be inferred, "
                           + describeType(arg->type) + " = " + describeType(arg->init->type), "", "",
                           arg->at, CompilationError::cant_infer_mismatching_restrictions );
                 } else {
@@ -4107,7 +4120,7 @@ namespace das {
             return Visitor::visit(expr);
         }
     // ExprVar
-        vector<VariablePtr> findMatchingVar ( const string & name ) const {
+        vector<VariablePtr> findMatchingVar ( const string & name, bool seePrivate ) const {
             string moduleName, varName;
             splitTypeName(name, moduleName, varName);
             vector<VariablePtr> result;
@@ -4115,7 +4128,9 @@ namespace das {
             program->library.foreach([&](Module * mod) -> bool {
                 if ( auto var = mod->findVariable(varName) ) {
                     if ( inWhichModule->isVisibleDirectly(var->module) ) {
-                        result.push_back(var);
+                        if ( seePrivate || canAccessGlobal(var,inWhichModule,program->thisModule.get()) ) {
+                            result.push_back(var);
+                        }
                     }
                 }
                 return true;
@@ -4188,7 +4203,7 @@ namespace das {
                 }
             }
             // global
-            auto vars = findMatchingVar(expr->name);
+            auto vars = findMatchingVar(expr->name, false);
             if ( vars.size()==1 ) {
                 auto var = vars.back();
                 expr->variable = var;
@@ -4197,19 +4212,43 @@ namespace das {
                 return Visitor::visit(expr);
 
             } else if ( vars.size()==0 ) {
-                error("can't locate variable " + expr->name, "", "",
-                    expr->at, CompilationError::variable_not_found);
-            } else {
-                TextWriter errs;
-                for ( auto & var : vars ) {
-                    errs << "\t" << var->module->name << "::" << var->name << " : " << describeType(var->type);
-                    if ( var->at.line ) {
-                        errs << " at " << var->at.describe();
+                if ( verbose ) {
+                    vars = findMatchingVar(expr->name, true);
+                    if ( vars.size() ) {
+                        TextWriter errs;
+                        for ( auto & var : vars ) {
+                            errs << "\t" << var->module->name << "::" << var->name << " : " << describeType(var->type);
+                            if ( var->at.line ) {
+                                errs << " at " << var->at.describe();
+                            }
+                            errs << "\n";
+                        }
+                        error("can't access private variable " + expr->name, "not visible due to privacy:\n" + errs.str(), "",
+                            expr->at, CompilationError::variable_not_found);
+                    } else {
+                        error("can't locate variable " + expr->name, "", "",
+                            expr->at, CompilationError::variable_not_found);
                     }
-                    errs << "\n";
+                } else {
+                    error("can't locate variable " + expr->name, "", "",
+                        expr->at, CompilationError::variable_not_found);
                 }
-                error("too many matching variables " + expr->name, "candidates are:\n" + errs.str(), "",
-                    expr->at, CompilationError::variable_not_found);
+            } else {
+                if ( verbose ) {
+                    TextWriter errs;
+                    for ( auto & var : vars ) {
+                        errs << "\t" << var->module->name << "::" << var->name << " : " << describeType(var->type);
+                        if ( var->at.line ) {
+                            errs << " at " << var->at.describe();
+                        }
+                        errs << "\n";
+                    }
+                    error("too many matching variables " + expr->name, "candidates are:\n" + errs.str(), "",
+                        expr->at, CompilationError::variable_not_found);
+                } else {
+                    error("too many matching variables " + expr->name, "", "",
+                        expr->at, CompilationError::variable_not_found);
+                }
             }
             return Visitor::visit(expr);
         }
@@ -4457,7 +4496,8 @@ namespace das {
                 error("cond operator condition must be boolean", "", "",
                     expr->at, CompilationError::condition_must_be_bool);
             } else if ( !expr->left->type->isSameType(*expr->right->type,RefMatters::no, ConstMatters::no, TemporaryMatters::no) ) {
-                error("cond operator must return the same types on both sides","", "",
+                error("cond operator must return the same types on both sides",
+                    "\t" + (verbose ? (expr->left->type->describe() + " vs " + expr->right->type->describe()) :""), "",
                       expr->at, CompilationError::operator_not_found);
             } else {
                 if ( expr->left->type->ref ^ expr->right->type->ref ) { // if either one is not ref
@@ -4708,7 +4748,7 @@ namespace das {
                     }
                     auto resT = TypeDecl::inferGenericType(resType, expr->subexpr->type);
                     if ( !resT ) {
-                        error("type can't be infered, "
+                        error("type can't be inferred, "
                               + describeType(resType) + ", returns " + describeType(expr->subexpr->type),"", "",
                               expr->at, CompilationError::cant_infer_mismatching_restrictions );
                     } else {
@@ -5175,7 +5215,7 @@ namespace das {
                 }
             }
             if ( var->type->isAuto() && !var->init) {
-                error("local variable type can't be infered, it needs an initializer", "", "",
+                error("local variable type can't be inferred, it needs an initializer", "", "",
                       var->at, CompilationError::cant_infer_missing_initializer );
             }
             if ( func ) {
@@ -5265,7 +5305,7 @@ namespace das {
             if ( var->type->isAuto() ) {
                 auto varT = TypeDecl::inferGenericInitType(var->type, var->init->type);
                 if ( !varT || varT->isAlias() ) {
-                    error("local variable " + var->name + " initialization type can't be infered, "
+                    error("local variable " + var->name + " initialization type can't be inferred, "
                           + describeType(var->type) + " = " + describeType(var->init->type), "", "",
                           var->at, CompilationError::cant_infer_mismatching_restrictions );
                 } else {
@@ -5705,18 +5745,19 @@ namespace das {
                 for ( size_t iF=0; iF!=expr->arguments.size(); ++iF ) {
                     auto & arg = expr->arguments[iF];
                     if ( arg->type->isAuto() && (arg->type->isGoodBlockType() || arg->type->isGoodLambdaType() || arg->type->isGoodFunctionType()) ) {
-                        DAS_ASSERTF ( arg->rtti_isMakeBlock(), "it's always MakeBlock. this is how we construct new [[ ]]" );
-                        auto mkBlock = static_pointer_cast<ExprMakeBlock>(arg);
-                        auto block = static_pointer_cast<ExprBlock>(mkBlock->block);
-                        auto retT = TypeDecl::inferGenericType(mkBlock->type, funcC->arguments[iF]->type);
-                        DAS_ASSERTF ( retT, "how? it matched during findMatchingFunctions the same way");
-                        TypeDecl::applyAutoContracts(mkBlock->type, funcC->arguments[iF]->type);
-                        block->returnType = make_smart<TypeDecl>(*retT->firstType);
-                        for ( size_t ba=0; ba!=retT->argTypes.size(); ++ba ) {
-                            block->arguments[ba]->type = make_smart<TypeDecl>(*retT->argTypes[ba]);
+                        if ( arg->rtti_isMakeBlock() ) { // "it's always MakeBlock. unless its function and @@funcName
+                            auto mkBlock = static_pointer_cast<ExprMakeBlock>(arg);
+                            auto block = static_pointer_cast<ExprBlock>(mkBlock->block);
+                            auto retT = TypeDecl::inferGenericType(mkBlock->type, funcC->arguments[iF]->type);
+                            DAS_ASSERTF ( retT, "how? it matched during findMatchingFunctions the same way");
+                            TypeDecl::applyAutoContracts(mkBlock->type, funcC->arguments[iF]->type);
+                            block->returnType = make_smart<TypeDecl>(*retT->firstType);
+                            for ( size_t ba=0; ba!=retT->argTypes.size(); ++ba ) {
+                                block->arguments[ba]->type = make_smart<TypeDecl>(*retT->argTypes[ba]);
+                            }
+                            setBlockCopyMoveFlags(block.get());
+                            reportAstChanged();
                         }
-                        setBlockCopyMoveFlags(block.get());
-                        reportAstChanged();
                     }
                 }
                 // append default arguments
@@ -5797,7 +5838,7 @@ namespace das {
                                 break;
                             }
                         }
-                        // now, we resolve types given infered aliases
+                        // now, we resolve types given inferred aliases
                         for (size_t sz = 0; sz != types.size(); ++sz) {
                             auto & argT = clone->arguments[sz]->type;
                             if (argT->isAlias()) {
@@ -5836,7 +5877,7 @@ namespace das {
                                 return nullptr;
                             }
                         }
-                        // now we verify if tail end can indeed be fully infered
+                        // now we verify if tail end can indeed be fully inferred
                         if (!program->addFunction(clone)) {
                             auto exf = program->thisModule->functions[clone->getMangledName()];
                             DAS_ASSERTF(exf, "if we can't add, this means there is function with exactly this mangled name");
@@ -5857,6 +5898,8 @@ namespace das {
                     if ( auto aliasT = findAlias(expr->name) ) {
                         if ( aliasT->isCtorType() ) {
                             expr->name = das_to_string(aliasT->baseType);
+                            if ( aliasT->baseType==Type::tBitfield )
+                            expr->aliasSubstitution = aliasT;
                             reportAstChanged();
                         } else {
                             reportMissing(expr, types, "no matching functions or generics ", true);
@@ -5871,6 +5914,18 @@ namespace das {
         virtual ExpressionPtr visit ( ExprCall * expr ) override {
             if (expr->argumentsFailedToInfer) return Visitor::visit(expr);
             expr->func = inferFunctionCall(expr).get();
+            if ( expr->aliasSubstitution  ) {
+                if ( expr->arguments.size()!=1 ) {
+                    error("casting to bitfield requires one argument", "", "",
+                        expr->at, CompilationError::invalid_cast);
+                    return Visitor::visit(expr);
+                }
+                auto ecast = make_smart<ExprCast>(expr->at, expr->arguments[0]->clone(), expr->aliasSubstitution );
+                ecast->reinterpret = true;
+                ecast->alwaysSafe = true;
+                expr->aliasSubstitution.reset();
+                return ecast;
+            }
             /*
             // NOTE: this should not be necessary, since infer function call suppose to report every time
             if ( !expr->func ) {
@@ -6409,7 +6464,7 @@ namespace das {
                             mkt = TypeDecl::inferGenericType(expr->makeType, init->type);
                         }
                         if ( !mkt ) {
-                            error("array type can't be infered, "
+                            error("array type can't be inferred, "
                                   + describeType(expr->makeType) + " = " + describeType(init->type), "", "",
                                   init->at, CompilationError::invalid_array_type );
                         } else {
